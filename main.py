@@ -91,8 +91,8 @@ def main():
         send_teams_notification("🤖 Script de Monitoramento de Casos Iniciado.")
 
     # ISO 8601 format for Salesforce SOQL
-    # Se for GitHub Actions, olhamos os últimos 15 minutos (margem de segurança para o cron de 10)
-    lookback_minutes = 15 if run_once else 5
+    # Se for GitHub Actions, olhamos os últimos 10 minutos (margem de segurança)
+    lookback_minutes = 10 if run_once else 5
     last_check_time = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - (lookback_minutes * 60)))
 
     while True:

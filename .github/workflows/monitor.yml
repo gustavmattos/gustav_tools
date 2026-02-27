@@ -2,7 +2,7 @@ name: Salesforce Case Monitor
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # Roda a cada 10 minutos
+    - cron: '*/3 * * * *' # Roda a cada 3 minutos
   workflow_dispatch: # Permite rodar manualmente pela aba Actions
 
 jobs:
