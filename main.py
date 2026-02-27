@@ -1,5 +1,6 @@
 import os
 import time
+import sys
 import requests
 from dotenv import load_dotenv
 from simple_salesforce import Salesforce, SalesforceAuthenticationFailed
@@ -73,18 +74,26 @@ def get_new_cases(sf, last_check_time):
         return []
 
 def main():
-    print("--- Monitoramento Salesforce Iniciado ---")
+    # Verifica se deve rodar apenas uma vez (para GitHub Actions)
+    run_once = "--once" in sys.argv
+    
+    if not run_once:
+        print("--- Monitoramento Salesforce Iniciado (Modo Loop) ---")
+    else:
+        print("--- Monitoramento Salesforce Iniciado (Modo Execução Única) ---")
     
     sf = connect_to_salesforce()
     if not sf:
         return
 
-    # Envia mensagem inicial
-    send_teams_notification("🤖 Script de Monitoramento de Casos Iniciado.")
+    # No modo loop envia mensagem inicial. No GitHub Actions não precisa.
+    if not run_once:
+        send_teams_notification("🤖 Script de Monitoramento de Casos Iniciado.")
 
     # ISO 8601 format for Salesforce SOQL
-    # Começamos verificando casos criados nos últimos 5 minutos
-    last_check_time = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - 300))
+    # Se for GitHub Actions, olhamos os últimos 15 minutos (margem de segurança para o cron de 10)
+    lookback_minutes = 15 if run_once else 5
+    last_check_time = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - (lookback_minutes * 60)))
 
     while True:
         print(f"[{time.strftime('%H:%M:%S')}] Verificando novos casos...")
@@ -106,13 +115,17 @@ def main():
                 if send_teams_notification(msg):
                     print(f"Notificação enviada para o caso {case_num}")
             
-            # Atualiza o tempo para a próxima checagem para o tempo do caso mais novo
-            # ou simplesmente para o tempo atual
+            # Atualiza o tempo para a próxima checagem
             last_check_time = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         else:
             print("Nenhum novo caso encontrado.")
 
-        # Aguarda 5 minutos para a próxima verificação (300 segundos)
+        # Se for modo execução única, encerra aqui
+        if run_once:
+            print("Execução única finalizada.")
+            break
+
+        # Aguarda 5 minutos para a próxima verificação
         time.sleep(300)
 
 if __name__ == "__main__":
