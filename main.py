@@ -91,38 +91,47 @@ def main():
         send_teams_notification("🤖 Script de Monitoramento de Casos Iniciado.")
 
     # ISO 8601 format for Salesforce SOQL
-    # Se for GitHub Actions, aumentamos a janela para 120 minutos (2h) para evitar
-    # perder casos se o cron do GitHub atrasar muito.
-    lookback_minutes = 120 if run_once else 5
+    # Modo Local: olhamos os últimos 60 minutos na partida para não perder nada
+    # Modo GitHub: 120 minutos (margem de segurança)
+    lookback_minutes = 120 if run_once else 60
     last_check_time = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - (lookback_minutes * 60)))
     
-    if run_once:
-        print(f"Buscando casos criados desde: {last_check_time} (UTC)")
+    print(f"Buscando casos criados desde: {last_check_time} (UTC)")
 
     while True:
-        print(f"[{time.strftime('%H:%M:%S')}] Verificando novos casos...")
-        
-        new_cases = get_new_cases(sf, last_check_time)
-        
-        if new_cases:
-            print(f"Encontrados {len(new_cases)} novos casos!")
-            for case in new_cases:
-                case_id = case['Id']
-                case_num = case['CaseNumber']
-                subject = case.get('Subject', 'Sem Assunto')
-                
-                # Link para o caso no Lightning
-                link = f"{SF_INSTANCE_URL}/lightning/r/Case/{case_id}/view"
-                
-                msg = f"🔔 **Novo Caso Recebido!**\n\n**Número:** {case_num}\n**Assunto:** {subject}\n[Visualizar no Salesforce]({link})"
-                
-                if send_teams_notification(msg):
-                    print(f"Notificação enviada para o caso {case_num}")
+        try:
+            print(f"[{time.strftime('%H:%M:%S')}] Verificando novos casos...")
             
-            # Atualiza o tempo para a próxima checagem
-            last_check_time = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-        else:
-            print("Nenhum novo caso encontrado.")
+            new_cases = get_new_cases(sf, last_check_time)
+            
+            # Se der erro de sessão ou algo assim, new_cases pode vir vazio ou o erro ser pego no get_new_cases
+            # Vamos garantir que o sf ainda está vivo testando uma query simples se falhar
+            
+            if new_cases:
+                print(f"Encontrados {len(new_cases)} novos casos!")
+                for case in new_cases:
+                    case_id = case['Id']
+                    case_num = case['CaseNumber']
+                    subject = case.get('Subject', 'Sem Assunto')
+                    
+                    # Link para o caso no Lightning
+                    link = f"{SF_INSTANCE_URL}/lightning/r/Case/{case_id}/view"
+                    
+                    msg = f"🔔 **Novo Caso Recebido!**\n\n**Número:** {case_num}\n**Assunto:** {subject}\n[Visualizar no Salesforce]({link})"
+                    
+                    if send_teams_notification(msg):
+                        print(f"Notificação enviada para o caso {case_num}")
+                
+                # Atualiza o tempo para a próxima checagem
+                last_check_time = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            else:
+                print("Nenhum novo caso encontrado.")
+
+        except Exception as e:
+            print(f"Erro detectado no loop: {e}. Tentando reconectar...")
+            time.sleep(10)
+            sf = connect_to_salesforce()
+            continue
 
         # Se for modo execução única, encerra aqui
         if run_once:
