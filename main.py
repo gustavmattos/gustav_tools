@@ -57,12 +57,13 @@ def get_new_cases(sf, last_check_time):
     """
     Busca casos novos ('Casos em Aberto GERAL') baseados na data de criação.
     """
-    # Consulta SOQL para buscar casos abertos criados após o último check
-    # Ajuste o filtro conforme o critério 'Casos em Aberto GERAL'
+    # Consulta SOQL para buscar casos abertos:
+    # 1. Criados após o último check (Novos Casos)
+    # 2. Com Status Marco = 'Alerta'
     query = (
-        "SELECT Id, CaseNumber, Subject, Description, CreatedDate "
+        "SELECT Id, CaseNumber, Subject, Description, CreatedDate, Status_Marco__c "
         "FROM Case "
-        f"WHERE IsClosed = false AND CreatedDate > {last_check_time} "
+        f"WHERE IsClosed = false AND (CreatedDate > {last_check_time} OR Status_Marco__c = 'Alerta') "
         "ORDER BY CreatedDate DESC"
     )
     
@@ -98,34 +99,49 @@ def main():
     
     print(f"Buscando casos criados desde: {last_check_time} (UTC)")
 
+    # Conjunto para evitar duplicidade de alertas de Marco (apenas no modo loop)
+    notified_milestones = set()
+
     while True:
         try:
-            print(f"[{time.strftime('%H:%M:%S')}] Verificando novos casos...")
+            print(f"[{time.strftime('%H:%M:%S')}] Verificando novos casos e alertas...")
             
-            new_cases = get_new_cases(sf, last_check_time)
+            new_records = get_new_cases(sf, last_check_time)
             
-            # Se der erro de sessão ou algo assim, new_cases pode vir vazio ou o erro ser pego no get_new_cases
-            # Vamos garantir que o sf ainda está vivo testando uma query simples se falhar
-            
-            if new_cases:
-                print(f"Encontrados {len(new_cases)} novos casos!")
-                for case in new_cases:
+            if new_records:
+                current_time_utc = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                
+                for case in new_records:
                     case_id = case['Id']
                     case_num = case['CaseNumber']
                     subject = case.get('Subject', 'Sem Assunto')
+                    status_marco = case.get('Status_Marco__c')
+                    created_date = case['CreatedDate']
                     
-                    # Link para o caso no Lightning
                     link = f"{SF_INSTANCE_URL}/lightning/r/Case/{case_id}/view"
                     
-                    msg = f"🔔 **Novo Caso Recebido!**\n\n**Número:** {case_num}\n**Assunto:** {subject}\n[Visualizar no Salesforce]({link})"
-                    
-                    if send_teams_notification(msg):
-                        print(f"Notificação enviada para o caso {case_num}")
+                    # Lógica 1: Caso Realmente Novo (Criado após o last_check_time)
+                    if created_date > last_check_time:
+                        msg = f"🔔 **Novo Caso Recebido!**\n\n**Número:** {case_num}\n**Assunto:** {subject}\n[Visualizar no Salesforce]({link})"
+                        if send_teams_notification(msg):
+                            print(f"Notificação de novo caso enviada: {case_num}")
+
+                    # Lógica 2: Alerta de Marco
+                    if status_marco == 'Alerta':
+                        if case_id not in notified_milestones:
+                            msg = f"⚠️ **ALERTA DE MARCO!**\n\n**Caso:** {case_num}\n**Assunto:** {subject}\n**Status:** Em Alerta\n[Visualizar no Salesforce]({link})"
+                            if send_teams_notification(msg):
+                                print(f"Notificação de ALERTA enviada: {case_num}")
+                                notified_milestones.add(case_id)
+                    elif case_id in notified_milestones:
+                        # Se saiu do status alerta, removemos do conjunto para permitir novo alerta no futuro
+                        notified_milestones.remove(case_id)
                 
-                # Atualiza o tempo para a próxima checagem
-                last_check_time = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                # Para novos casos, atualizamos o cursor de tempo
+                # Usamos o tempo da execução para evitar repetições na próxima query
+                last_check_time = current_time_utc
             else:
-                print("Nenhum novo caso encontrado.")
+                print("Nada de novo encontrado.")
 
         except Exception as e:
             print(f"Erro detectado no loop: {e}. Tentando reconectar...")
