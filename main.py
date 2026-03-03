@@ -61,9 +61,9 @@ def get_new_cases(sf, last_check_time):
     # 1. Criados após o último check (Novos Casos)
     # 2. Com Status Marco = 'Alerta'
     query = (
-        "SELECT Id, CaseNumber, Subject, Description, CreatedDate, Status_Marco__c "
+        "SELECT Id, CaseNumber, Subject, Status, Description, CreatedDate, Status_Marco__c "
         "FROM Case "
-        f"WHERE IsClosed = false AND (CreatedDate > {last_check_time} OR Status_Marco__c = 'Alerta') "
+        f"WHERE IsClosed = false AND (CreatedDate > {last_check_time} OR (Status_Marco__c = 'Alerta' AND Status = 'Aguardando atendimento')) "
         "ORDER BY CreatedDate DESC"
     )
     
@@ -126,19 +126,18 @@ def main():
                         if send_teams_notification(msg):
                             print(f"Notificação de novo caso enviada: {case_num}")
 
-                    # Lógica 2: Alerta de Marco
-                    if status_marco == 'Alerta':
+                    # Lógica 2: Alerta de Marco (Apenas se estiver Aguardando atendimento)
+                    if status_marco == 'Alerta' and case.get('Status') == 'Aguardando atendimento':
                         if case_id not in notified_milestones:
-                            msg = f"⚠️ **ALERTA DE MARCO!**\n\n**Caso:** {case_num}\n**Assunto:** {subject}\n**Status:** Em Alerta\n[Visualizar no Salesforce]({link})"
+                            msg = f"⚠️ **ALERTA DE MARCO!**\n\n**Caso:** {case_num}\n**Assunto:** {subject}\n**Status:** Aguardando Atendimento\n[Visualizar no Salesforce]({link})"
                             if send_teams_notification(msg):
                                 print(f"Notificação de ALERTA enviada: {case_num}")
                                 notified_milestones.add(case_id)
                     elif case_id in notified_milestones:
-                        # Se saiu do status alerta, removemos do conjunto para permitir novo alerta no futuro
+                        # Se saiu do status alerta ou não está mais aguardando, permitimos novo alerta no futuro
                         notified_milestones.remove(case_id)
                 
                 # Para novos casos, atualizamos o cursor de tempo
-                # Usamos o tempo da execução para evitar repetições na próxima query
                 last_check_time = current_time_utc
             else:
                 print("Nada de novo encontrado.")
@@ -154,8 +153,12 @@ def main():
             print("Execução única finalizada.")
             break
 
-        # Aguarda 5 minutos para a próxima verificação
-        time.sleep(300)
+        # Aguarda 5 minutos com contagem regressiva no terminal
+        for i in range(300, 0, -1):
+            sys.stdout.write(f"\rPróxima verificação em {i} segundos...   ")
+            sys.stdout.flush()
+            time.sleep(1)
+        print("\n")
 
 if __name__ == "__main__":
     main()
